@@ -1,23 +1,24 @@
 # Script for updating DDNS records on FreeDNS.afraid.org
 # Script uses ideas by Chupakabra303 # http://habrahabr.ru/post/270719/
 # tested on ROS 6.49.19 & 7.19.3
-# updated 2025/09/16
+# updated 2025/09/25
 
 :do {
   :local dmnDNS "aaa.xyz.com"
   :local subDmnHsh "TElRcWlwRzNYMHNnZ2NCR5VmiE92a2pnOjE5MTg19DM4"
   
-  # search of gateway interface 
+  # search of interface-list gateway
   :local GwFinder do={ # no input parameters
     :local routeISP [/ip route find dst-address=0.0.0.0/0 active=yes]; :if ([:len $routeISP]=0) do={:return ""}
     :set routeISP "/ip route get $routeISP"; /interface
     :local routeGW {"[$routeISP vrf-interface]";"[$routeISP immediate-gw]";"[$routeISP gateway-status]"}
     :foreach ifLstMmb in=[list member find] do={
-      :local ifIfac [list member get $ifLstMmb interface]; :local ifList [list member get $ifLstMmb list]
+      :local ifIfac [list member get $ifLstMmb interface]
       :local brName ""; :do {:set brName [bridge port get [find interface=$ifIfac] bridge]} on-error={}
       :foreach answer in=$routeGW do={
         :local gw ""; :do {:set gw [:tostr [[:parse $answer]]]} on-error={}
-        :if ([:len $gw]>0 && $gw~$ifIfac or [:len $brName]>0 && $gw~$brName) do={:return $ifIfac}}}
+        :if ([:len $gw]>0 && $gw~$ifIfac) do={:return $ifIfac}
+        :if ([:len $brName]>0 && $gw~$brName) do={:return $brName}}}
     :return ""}
 
   # external IP address return function # https://forummikrotik.ru/viewtopic.php?p=65345#p65345
