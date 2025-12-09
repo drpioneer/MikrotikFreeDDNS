@@ -1,7 +1,7 @@
 # Script for updating DDNS records on FreeDNS.afraid.org
 # Script uses ideas by Chupakabra303 # http://habrahabr.ru/post/270719/
-# tested on ROS 6.49.19 & 7.19.3
-# updated 2025/09/25
+# tested on ROS 6.49.19 & 7.20.4
+# updated 2025/12/09
 
 :do {
   :local dmnDNS "aaa.xyz.com"
@@ -47,16 +47,19 @@
 
   # main body
   :global lastIP
-  :put "Start of updating DDNS script on router: $[/system identity get name]"
+  :put "Start of updating DDNS script on router: '$[/system identity get name]'"
   :local ifcWAN [$GwFinder]; # search gw interface
-  :local currIP [/ip dhcp-client get [find interface=$ifcWAN] address]; :set $currIP [:pick $currIP 0 [:find $currIP "/"]]
+  :local remark ""; :local currIP ""
+  :do {:set remark [/interface get [find name=$ifcWAN] comment]} on-error={}
+  :do {:set currIP [/ip dhcp-client get [find interface=$ifcWAN] address]} on-error={}
+  :set $currIP [:pick $currIP 0 [:find $currIP "/"]]
   :if ($currIP~"192.168([.](25[0-5]|2[0-4][0-9]|[0-1]?[0-9][0-9]?)){2}" or \
     $currIP~"10([.](25[0-5]|2[0-4][0-9]|[0-1]?[0-9][0-9]?)){3}") do={
       :put "IP '$currIP' is private"; :set $currIP [$ExtIP]}; # private adresses: 192.168.0.0/16 or 10.0.0.0/8
-  :local msg ">>> External IP '$currIP' on $ifcWAN"
-  :if ([:len $currIP]>0 && $currIP!=$lastIP) do={
-    :set msg "$msg changed for $dmnDNS (old IP '$lastIP')"
-    :log warning ">>> DynDNS: Old IP '$lastIP' for $dmnDNS change to IP '$currIP' on $ifcWAN"
+  :local msg ">>> External IP '$currIP' on '$ifcWAN' with comment '$remark'"
+  :if ([:len $currIP]>0 && $currIP!="Unknown" && $currIP!=$lastIP) do={
+    :set msg "$msg changed for '$dmnDNS' (old IP '$lastIP')"
+    :log warning ">>> DynDNS: Old IP '$lastIP' for '$dmnDNS' change to IP '$currIP' on '$ifcWAN'"
     :local url "http://freedns.afraid.org/dynamic/update.php\?$subDmnHsh&address=$currIP"; :local method "put"; # or "post"
     /tool fetch http-method=$method url=$url keep-result=no
     :set lastIP $currIP
