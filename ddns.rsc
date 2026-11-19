@@ -1,13 +1,14 @@
 # Script for updating DDNS records on FreeDNS.afraid.org
 # Script uses ideas by Chupakabra303 # http://habrahabr.ru/post/270719/
-# tested on ROS 6.49.19 & 7.20.4
-# updated 2026/10/21
+# tested on ROS 6.49.23 & 7.25.1
+# updated 2026/11/19
 
+:global scriptDdns; # flag of running script: false=in progress, true=idle
+:global lastIP;
 :do {
-
   :local dmnDNS "aaa.xyz.com"
   :local subDmnHsh "TElRcWlwRzNYMHNnZ2NCR5VmiE92a2pnOjE5MTg19DM4"
-  
+
   # search of interface-list gateway
   :local GwFinder do={ # no input parameters
     :local routeISP [/ip route find dst-address=0.0.0.0/0 active=yes]; :if ([:len $routeISP]=0) do={:return ""}
@@ -46,28 +47,43 @@
       } else={:put "No response received"}}
     :return "Unknown"}
 
+  # check for suitable IP
+  :local SuitableIP do={
+    :if ([:len $1]=0) do={:return false}
+    :if ($1~"0.0.0.0") do={:return false}
+    :if ($1~"^10\\.") do={:return false}
+    :if ($1~"^192\\.168\\.") do={:return false}
+    :local secondOctet [:pick $1 4 [:find $1 "." 4]]
+    :if ($1~"^172\\.") do={:local secNum [:tonum $secondOctet]; :if ($secNum>=16 && $secNum<=31) do={:return false}}
+    :if ($1~"^127\\.") do={:return false}
+    :if ($1~"Unknown") do={:return false}
+    :return true}
+
   # main body
-  :global lastIP; :local validIP true
-  :put "Start of updating DDNS script on router: '$[/system identity get name]'"
-  :local ifcWAN [$GwFinder]; # search gw interface
-  :local remark ""; :local currIP ""
-  :if ([:len $ifcWAN]!=0) do={
-    :do {:set remark [/interface get [find name=$ifcWAN] comment]} on-error={}
-    :do {:set currIP [/ip dhcp-client get [find interface=$ifcWAN] address]} on-error={}
-    :put "Gateway interface: '$ifcWAN' with comment: '$remark'"
-    :if ([:len $currIP]!=0) do={
-      :set $currIP [:pick $currIP 0 [:find $currIP "/"]]
-      :if ($currIP~"192.168([.](25[0-5]|2[0-4][0-9]|[0-1]?[0-9][0-9]?)){2}" or \
-        $currIP~"10([.](25[0-5]|2[0-4][0-9]|[0-1]?[0-9][0-9]?)){3}") do={
-          :put "IP '$currIP' is private"; :set $currIP [$ExtIP]}; :set validIP false;}; # private adresses: 192.168.0.0/16 or 10.0.0.0/8
-    :put "External IP: '$currIP'"} else={:put "External IPv4-address & gateway not found!"}
-  :local msg ">>> Ext IP '$currIP' on '$ifcWAN' comment '$remark'"
-  :if (validIP && [:len $currIP]>0 && $currIP!="Unknown" && $currIP!=$lastIP) do={
-    :set msg "$msg changed for '$dmnDNS' (old IP '$lastIP')"
-    :log warning ">>> DynDNS: Old IP '$lastIP' for '$dmnDNS' change to IP '$currIP' on '$ifcWAN'"
-    :local url "http://freedns.afraid.org/dynamic/update.php\?$subDmnHsh&address=$currIP"; :local method "put"; # or "post"
-    /tool fetch http-method=$method url=$url keep-result=no
-    :set lastIP $currIP
-  } else={:set msg "$msg nothing has changed"}
-  :put $msg
-} on-error={ log warning "Error on script of updating DDNS records" }
+  :if ([:len $scriptDdns]=0) do={:set scriptDdns true}; # creating a script running flag
+  :if ([:len $lastIP]=0) do={:set lastIP "0.0.0.0"}; # initialize if missing
+  :if ($scriptDdns) do={ # when script is active ->
+    :set scriptDdns false; # script running flag is active 
+    :put "Start of updating DDNS script on router: '$[/system identity get name]'"
+    :local ifcWAN [$GwFinder]; # search gw interface
+    :local remark ""; :local currIP ""
+    :if ([:len $ifcWAN]!=0) do={
+      :do {:set remark [/interface get [find name=$ifcWAN] comment]} on-error={}
+      :do {:set currIP [/ip dhcp-client get [find interface=$ifcWAN] address]} on-error={}
+      :put "Gateway interface: '$ifcWAN' with comment: '$remark'"
+      :if ([:len $currIP]!=0) do={
+        :set $currIP [:pick $currIP 0 [:find $currIP "/"]]
+        :if (![$SuitableIP $currIP]) do={:put "IP '$currIP' is unsuitable"; :set $currIP [$ExtIP]}; }
+      :put "External IP: '$currIP'"} else={:put "External IPv4-address & gateway not found!"}
+    :local msg ">>> External IP '$currIP' on '$ifcWAN' comment '$remark'"
+    :if ([:len $currIP]>0 && $currIP!="Unknown" && $currIP!=$lastIP) do={
+      :set lastIP $currIP
+      :set msg "$msg changed for '$dmnDNS' (old IP '$lastIP')"
+      :log warning ">>> DynDNS: old IP '$lastIP' of '$dmnDNS' change to IP '$currIP' on '$ifcWAN' ($remark)"
+      :local url "http://freedns.afraid.org/dynamic/update.php\?$subDmnHsh&address=$currIP"
+      /tool fetch http-method=get url=$url keep-result=no;  # methods: 'get', 'put' or 'post'
+    } else={:set msg "$msg nothing has changed"}
+    :put $msg
+    :set scriptDdns true
+  } else={:put "Script already being executed"; :put "End of DDNS script"}
+} on-error={:set scriptDdns true; log warning "Error on script of updating DDNS records"}
